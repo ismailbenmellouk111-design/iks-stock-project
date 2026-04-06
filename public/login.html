@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IKS - Login</title>
+  <link rel="stylesheet" href="login.css" />
+</head>
+<body>
+  <div class="login-wrapper">
+    <div class="login-card">
+      
+      <!-- Left side -->
+      <div class="brand-box">
+        <div class="logo-circle">IKS</div>
+        <h1>IKS</h1>
+        <p>Gestion de Stock - Entreprise de Couture</p>
+      </div>
+
+      <!-- Right side -->
+      <form id="loginForm" class="login-form">
+        <h2>Connexion Administrateur</h2>
+        <p class="subtitle">
+          Connectez-vous pour accéder au système de gestion de stock.
+        </p>
+
+        <div class="input-group">
+          <label for="username">Nom d'utilisateur</label>
+          <input
+            type="text"
+            id="username"
+            placeholder="Entrez votre nom d'utilisateur"
+            required
+          />
+        </div>
+
+        <div class="input-group">
+          <label for="password">Mot de passe</label>
+          <input
+            type="password"
+            id="password"
+            placeholder="Entrez votre mot de passe"
+            required
+          />
+        </div>
+
+        <button type="submit" class="login-btn">Se connecter</button>
+
+        <p id="msg" class="msg"></p>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value
+        })
+      });
+
+      const data = await res.json();
+      const msg = document.getElementById('msg');
+
+      if (res.ok) {
+        msg.style.color = '#198754';
+        msg.textContent = '✅ Connexion réussie...';
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 800);
+      } else {
+        msg.style.color = '#dc3545';
+        msg.textContent = data.message || 'Login incorrect';
+      }
+    });
+  </script>
+</body>
+</html>

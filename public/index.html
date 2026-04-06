@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestion de Stock - IKS</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <div class="top-bar">
+        <div>
+          <h1>Gestion de Stock - Entreprise de Couture</h1>
+          <p>Suivi des tissus, fils et accessoires</p>
+        </div>
+        <button id="logoutBtn" class="btn-delete">Logout</button>
+      </div>
+    </header>
+
+    <!-- Ajouter produit -->
+    <section class="card">
+      <h2>Ajouter un produit</h2>
+      <form id="productForm">
+        <div class="grid">
+          <input type="text" id="name" placeholder="Nom du produit" required />
+          <input type="text" id="category" placeholder="Catégorie (Tissu, Fil...)" />
+          <input type="number" id="quantity" placeholder="Quantité" min="0" required />
+          <input type="number" id="price" placeholder="Prix" min="0" step="0.01" required />
+          <input type="number" id="min_stock" placeholder="Stock minimum" min="0" value="5" />
+        </div>
+        <button type="submit">Ajouter produit</button>
+      </form>
+    </section>
+
+    <!-- Modifier produit -->
+    <section class="card" id="editSection" style="display: none;">
+      <h2>Modifier un produit</h2>
+      <form id="editProductForm">
+        <input type="hidden" id="editId" />
+
+        <div class="grid">
+          <input type="text" id="editName" placeholder="Nom du produit" required />
+          <input type="text" id="editCategory" placeholder="Catégorie" />
+          <input type="number" id="editQuantity" placeholder="Quantité" min="0" required />
+          <input type="number" id="editPrice" placeholder="Prix" min="0" step="0.01" required />
+          <input type="number" id="editMinStock" placeholder="Stock minimum" min="0" required />
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn-add">Enregistrer</button>
+          <button type="button" id="cancelEditBtn" class="btn-delete">Annuler</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Liste produits -->
+    <section class="card">
+      <div class="section-title">
+        <h2>Liste des produits</h2>
+
+        <div class="top-actions">
+          <input
+            type="text"
+            id="searchInput"
+            placeholder="🔎 Rechercher par nom ou catégorie..."
+          />
+          <button id="refreshBtn">Actualiser</button>
+        </div>
+      </div>
+
+      <div id="message"></div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Nom</th>
+            <th>Catégorie</th>
+            <th>Quantité</th>
+            <th>Prix</th>
+            <th>Min Stock</th>
+            <th>État</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="productsTableBody"></tbody>
+      </table>
+    </section>
+
+    <!-- Low stock -->
+    <section class="card">
+      <h2>Produits en Low Stock</h2>
+      <ul id="lowStockList"></ul>
+    </section>
+
+    <!-- Historique -->
+    <section class="card">
+      <div class="section-title">
+        <h2>Historique des modifications</h2>
+        <button id="refreshHistoryBtn">Actualiser l'historique</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Produit</th>
+            <th>Action</th>
+            <th>Ancienne quantité</th>
+            <th>Nouvelle quantité</th>
+            <th>Ancien prix</th>
+            <th>Nouveau prix</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody id="auditTableBody"></tbody>
+      </table>
+    </section>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
