@@ -28,6 +28,7 @@ const editQuantity = document.getElementById('editQuantity');
 const editPrice = document.getElementById('editPrice');
 const editMinStock = document.getElementById('editMinStock');
 const logoutBtn = document.getElementById('logoutBtn');
+const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
 let allProducts = [];
 
@@ -419,6 +420,30 @@ refreshBtn.addEventListener('click', () => {
 if (refreshHistoryBtn) {
   refreshHistoryBtn.addEventListener('click', () => {
     fetchAuditLogs();
+  });
+}
+if (clearHistoryBtn) {
+  clearHistoryBtn.addEventListener('click', async () => {
+    const confirmClear = confirm('Wash bghiti tmse7 ga3 lhistorique?');
+    if (!confirmClear) return;
+
+    try {
+      const res = await fetch(`${API_URL}/audit-logs`, {
+        method: 'DELETE'
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        showMessage(data.message || 'Erreur lors de la suppression de l’historique');
+        return;
+      }
+
+      showMessage(data.message || '✅ Historique supprimé');
+      fetchAuditLogs();
+    } catch (error) {
+      console.error('Error clearing audit logs:', error);
+    }
   });
 }
 if (logoutBtn) {
