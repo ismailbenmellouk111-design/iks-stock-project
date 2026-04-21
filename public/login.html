@@ -57,6 +57,7 @@
 
       const res = await fetch('/login', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: document.getElementById('username').value,
@@ -70,9 +71,7 @@
       if (res.ok) {
         msg.style.color = '#198754';
         msg.textContent = '✅ Connexion réussie...';
-        setTimeout(() => {
-          window.location.href = '/';
-        }, 800);
+        window.location.href = '/';
       } else {
         msg.style.color = '#dc3545';
         msg.textContent = data.message || 'Login incorrect';

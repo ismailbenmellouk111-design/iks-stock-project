@@ -1,4 +1,6 @@
-fetch('/check-auth', { credentials: 'same-origin' })
+fetch('/check-auth', {
+  credentials: 'same-origin'
+})
   .then(res => res.json())
   .then(data => {
     if (!data.logged) {
