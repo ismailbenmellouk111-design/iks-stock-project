@@ -1,12 +1,16 @@
-fetch('/check-auth')
+fetch('/check-auth', { credentials: 'same-origin' })
   .then(res => res.json())
   .then(data => {
     if (!data.logged) {
       window.location.href = '/login.html';
     }
+  })
+  .catch(err => {
+    console.error('Auth check error:', err);
+    window.location.href = '/login.html';
   });
 
-const API_URL = 'http://localhost:3000';
+const API_URL = '';
 
 const productForm = document.getElementById('productForm');
 const productsTableBody = document.getElementById('productsTableBody');
@@ -33,6 +37,7 @@ const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 let allProducts = [];
 
 function showMessage(msg) {
+  if (!messageBox) return;
   messageBox.textContent = msg;
   setTimeout(() => {
     messageBox.textContent = '';
@@ -71,20 +76,29 @@ function getActionClass(action) {
 // ==============================
 async function fetchProducts() {
   try {
-    const res = await fetch(`${API_URL}/products`);
-    const products = await res.json();
+    const res = await fetch(`${API_URL}/products`, {
+      credentials: 'same-origin'
+    });
 
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const products = await res.json();
     allProducts = products;
     displayProducts(products);
   } catch (error) {
     console.error('Error loading products:', error);
+    showMessage('Erreur lors du chargement des produits');
   }
 }
 
 function displayProducts(products) {
+  if (!productsTableBody) return;
+
   productsTableBody.innerHTML = '';
 
-  if (products.length === 0) {
+  if (!products.length) {
     productsTableBody.innerHTML = `
       <tr>
         <td colspan="8">❌ Aucun produit trouvé</td>
@@ -124,28 +138,38 @@ function displayProducts(products) {
 // ==============================
 // SEARCH
 // ==============================
-searchInput.addEventListener('input', () => {
-  const keyword = searchInput.value.toLowerCase().trim();
+if (searchInput) {
+  searchInput.addEventListener('input', () => {
+    const keyword = searchInput.value.toLowerCase().trim();
 
-  const filteredProducts = allProducts.filter(product =>
-    product.name.toLowerCase().includes(keyword) ||
-    (product.category && product.category.toLowerCase().includes(keyword))
-  );
+    const filteredProducts = allProducts.filter(product =>
+      product.name.toLowerCase().includes(keyword) ||
+      (product.category && product.category.toLowerCase().includes(keyword))
+    );
 
-  displayProducts(filteredProducts);
-});
+    displayProducts(filteredProducts);
+  });
+}
 
 // ==============================
 // LOW STOCK
 // ==============================
 async function fetchLowStock() {
   try {
-    const res = await fetch(`${API_URL}/low-stock`);
+    const res = await fetch(`${API_URL}/low-stock`, {
+      credentials: 'same-origin'
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
     const products = await res.json();
 
+    if (!lowStockList) return;
     lowStockList.innerHTML = '';
 
-    if (products.length === 0) {
+    if (!products.length) {
       lowStockList.innerHTML = '<li>Aucun produit en low stock</li>';
       return;
     }
@@ -165,9 +189,17 @@ async function fetchLowStock() {
 // ==============================
 async function fetchAuditLogs() {
   try {
-    const res = await fetch(`${API_URL}/audit-logs`);
+    const res = await fetch(`${API_URL}/audit-logs`, {
+      credentials: 'same-origin'
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
     const logs = await res.json();
 
+    if (!auditTableBody) return;
     auditTableBody.innerHTML = '';
 
     if (!logs.length) {
@@ -204,59 +236,73 @@ async function fetchAuditLogs() {
 // ==============================
 // ADD PRODUCT
 // ==============================
-productForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
+if (productForm) {
+  productForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-  const name = document.getElementById('name').value;
-  const category = document.getElementById('category').value;
-  const quantity = document.getElementById('quantity').value;
-  const price = document.getElementById('price').value;
-  const min_stock = document.getElementById('min_stock').value;
+    const name = document.getElementById('name')?.value;
+    const category = document.getElementById('category')?.value;
+    const quantity = document.getElementById('quantity')?.value;
+    const price = document.getElementById('price')?.value;
+    const min_stock = document.getElementById('min_stock')?.value;
 
-  try {
-    const res = await fetch(`${API_URL}/products`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        name,
-        category,
-        quantity: Number(quantity),
-        price: Number(price),
-        min_stock: Number(min_stock)
-      })
-    });
+    try {
+      const res = await fetch(`${API_URL}/products`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name,
+          category,
+          quantity: Number(quantity),
+          price: Number(price),
+          min_stock: Number(min_stock)
+        })
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok) {
-      showMessage(data.message || 'Erreur lors de l’ajout');
-      return;
+      if (!res.ok) {
+        showMessage(data.message || 'Erreur lors de l’ajout');
+        return;
+      }
+
+      showMessage('✅ Produit ajouté avec succès');
+      productForm.reset();
+
+      const minStockInput = document.getElementById('min_stock');
+      if (minStockInput) minStockInput.value = 5;
+
+      fetchProducts();
+      fetchLowStock();
+      fetchAuditLogs();
+    } catch (error) {
+      console.error('Error adding product:', error);
+      showMessage('Erreur lors de l’ajout');
     }
-
-    showMessage('✅ Produit ajouté avec succès');
-    productForm.reset();
-    document.getElementById('min_stock').value = 5;
-
-    fetchProducts();
-    fetchLowStock();
-    fetchAuditLogs();
-  } catch (error) {
-    console.error('Error adding product:', error);
-  }
-});
+  });
+}
 
 // ==============================
 // LOAD PRODUCT INTO EDIT FORM
 // ==============================
 async function editProduct(id) {
   try {
-    const res = await fetch(`${API_URL}/products/${id}`);
+    const res = await fetch(`${API_URL}/products/${id}`, {
+      credentials: 'same-origin'
+    });
+
     const product = await res.json();
 
     if (!res.ok) {
       showMessage(product.message || 'Erreur lors du chargement du produit');
+      return;
+    }
+
+    if (!editId || !editName || !editCategory || !editQuantity || !editPrice || !editMinStock || !editSection) {
+      showMessage('Section de modification introuvable');
       return;
     }
 
@@ -277,53 +323,60 @@ async function editProduct(id) {
 // ==============================
 // UPDATE PRODUCT
 // ==============================
-editProductForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
+if (editProductForm) {
+  editProductForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-  const id = editId.value;
+    if (!editId) return;
+    const id = editId.value;
 
-  try {
-    const res = await fetch(`${API_URL}/products/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        name: editName.value,
-        category: editCategory.value,
-        quantity: Number(editQuantity.value),
-        price: Number(editPrice.value),
-        min_stock: Number(editMinStock.value)
-      })
-    });
+    try {
+      const res = await fetch(`${API_URL}/products/${id}`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: editName?.value,
+          category: editCategory?.value,
+          quantity: Number(editQuantity?.value),
+          price: Number(editPrice?.value),
+          min_stock: Number(editMinStock?.value)
+        })
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok) {
-      showMessage(data.message || 'Erreur lors de la modification');
-      return;
+      if (!res.ok) {
+        showMessage(data.message || 'Erreur lors de la modification');
+        return;
+      }
+
+      showMessage('✅ Produit modifié avec succès');
+
+      editProductForm.reset();
+      if (editSection) editSection.style.display = 'none';
+
+      fetchProducts();
+      fetchLowStock();
+      fetchAuditLogs();
+    } catch (error) {
+      console.error('Error updating product:', error);
+      showMessage('Erreur lors de la modification');
     }
-
-    showMessage('✅ Produit modifié avec succès');
-
-    editProductForm.reset();
-    editSection.style.display = 'none';
-
-    fetchProducts();
-    fetchLowStock();
-    fetchAuditLogs();
-  } catch (error) {
-    console.error('Error updating product:', error);
-  }
-});
+  });
+}
 
 // ==============================
 // CANCEL EDIT
 // ==============================
-cancelEditBtn.addEventListener('click', () => {
-  editProductForm.reset();
-  editSection.style.display = 'none';
-});
+if (cancelEditBtn) {
+  cancelEditBtn.addEventListener('click', () => {
+    if (editProductForm) editProductForm.reset();
+    if (editSection) editSection.style.display = 'none';
+  });
+}
 
 // ==============================
 // ADD STOCK
@@ -336,6 +389,7 @@ async function addStock(id) {
   try {
     const res = await fetch(`${API_URL}/products/${id}/add-stock`, {
       method: 'PUT',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -352,6 +406,7 @@ async function addStock(id) {
     fetchAuditLogs();
   } catch (error) {
     console.error('Error adding stock:', error);
+    showMessage('Erreur lors de l’ajout du stock');
   }
 }
 
@@ -366,6 +421,7 @@ async function removeStock(id) {
   try {
     const res = await fetch(`${API_URL}/products/${id}/remove-stock`, {
       method: 'PUT',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -382,6 +438,7 @@ async function removeStock(id) {
     fetchAuditLogs();
   } catch (error) {
     console.error('Error removing stock:', error);
+    showMessage('Erreur lors du retrait du stock');
   }
 }
 
@@ -394,7 +451,8 @@ async function deleteProduct(id) {
 
   try {
     const res = await fetch(`${API_URL}/products/${id}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      credentials: 'same-origin'
     });
 
     const data = await res.json();
@@ -405,23 +463,27 @@ async function deleteProduct(id) {
     fetchAuditLogs();
   } catch (error) {
     console.error('Error deleting product:', error);
+    showMessage('Erreur lors de la suppression');
   }
 }
 
 // ==============================
 // REFRESH BUTTONS
 // ==============================
-refreshBtn.addEventListener('click', () => {
-  fetchProducts();
-  fetchLowStock();
-  fetchAuditLogs();
-});
+if (refreshBtn) {
+  refreshBtn.addEventListener('click', () => {
+    fetchProducts();
+    fetchLowStock();
+    fetchAuditLogs();
+  });
+}
 
 if (refreshHistoryBtn) {
   refreshHistoryBtn.addEventListener('click', () => {
     fetchAuditLogs();
   });
 }
+
 if (clearHistoryBtn) {
   clearHistoryBtn.addEventListener('click', async () => {
     const confirmClear = confirm('Wash bghiti tmse7 ga3 lhistorique?');
@@ -429,7 +491,8 @@ if (clearHistoryBtn) {
 
     try {
       const res = await fetch(`${API_URL}/audit-logs`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'same-origin'
       });
 
       const data = await res.json();
@@ -446,10 +509,12 @@ if (clearHistoryBtn) {
     }
   });
 }
+
 if (logoutBtn) {
   logoutBtn.addEventListener('click', async () => {
     await fetch('/logout', {
-      method: 'POST'
+      method: 'POST',
+      credentials: 'same-origin'
     });
 
     window.location.href = '/login.html';

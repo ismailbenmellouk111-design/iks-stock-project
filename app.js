@@ -41,6 +41,10 @@ const dbConfig = {
   }
 };
 
+console.log('DB_SERVER =', process.env.DB_SERVER);
+console.log('DB_NAME =', process.env.DB_NAME);
+
+
 async function getPool() {
   return await sql.connect(dbConfig);
 }
