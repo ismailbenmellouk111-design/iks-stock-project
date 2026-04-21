@@ -8,6 +8,7 @@ const sql = require('mssql');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const isProduction = !!process.env.WEBSITE_SITE_NAME;
 
 /* =========================
    MIDDLEWARE
@@ -16,14 +17,19 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Azure App Service is behind a reverse proxy
+app.set('trust proxy', 1);
+
 app.use(session({
-  secret: 'secret-key-stock-app',
+  secret: process.env.SESSION_SECRET || 'secret-key-stock-app',
   resave: false,
   saveUninitialized: false,
+  proxy: true,
   cookie: {
-    secure: false,
+    secure: isProduction,   // true on Azure HTTPS
     httpOnly: true,
-    maxAge: 30 * 60 * 1000
+    sameSite: 'lax',
+    maxAge: 30 * 60 * 1000  // 30 minutes
   }
 }));
 
@@ -41,39 +47,71 @@ const dbConfig = {
   }
 };
 
-console.log('DB_SERVER =', process.env.DB_SERVER);
-console.log('DB_NAME =', process.env.DB_NAME);
+// Optional debug (safe enough, does not print password)
+console.log('DB_SERVER =', process.env.DB_SERVER || '(undefined)');
+console.log('DB_NAME =', process.env.DB_NAME || '(undefined)');
+console.log('Running in production =', isProduction);
 
+let poolPromise = null;
 
 async function getPool() {
-  return await sql.connect(dbConfig);
+  try {
+    if (poolPromise) return poolPromise;
+
+    poolPromise = sql.connect(dbConfig).catch(err => {
+      poolPromise = null;
+      throw err;
+    });
+
+    return await poolPromise;
+  } catch (err) {
+    console.error('❌ SQL connection error:', err.message);
+    throw err;
+  }
 }
 
 /* =========================
    INIT DEFAULT ADMIN
 ========================= */
 async function initDatabase() {
-  const pool = await getPool();
-  const check = await pool.request()
-    .input('username', sql.VarChar, 'admin')
-    .query('SELECT * FROM admins WHERE username=@username');
+  try {
+    const pool = await getPool();
 
-  if (check.recordset.length === 0) {
-    const hash = await bcrypt.hash('admin123', 10);
-    await pool.request()
+    const check = await pool.request()
       .input('username', sql.VarChar, 'admin')
-      .input('password_hash', sql.VarChar, hash)
-      .query('INSERT INTO admins (username,password_hash) VALUES (@username,@password_hash)');
-    console.log('✅ Default admin created');
+      .query('SELECT * FROM admins WHERE username = @username');
+
+    if (check.recordset.length === 0) {
+      const hash = await bcrypt.hash('admin123', 10);
+
+      await pool.request()
+        .input('username', sql.VarChar, 'admin')
+        .input('password_hash', sql.VarChar, hash)
+        .query(`
+          INSERT INTO admins (username, password_hash)
+          VALUES (@username, @password_hash)
+        `);
+
+      console.log('✅ Default admin created');
+      console.log('➡️ username: admin');
+      console.log('➡️ password: admin123');
+    } else {
+      console.log('✅ Admin already exists');
+    }
+  } catch (err) {
+    console.error('❌ Init DB error:', err.message);
   }
 }
+
 initDatabase();
 
 /* =========================
-   AUTH
+   AUTH MIDDLEWARE
 ========================= */
 function requireLogin(req, res, next) {
-  if (!req.session.admin) return res.status(401).json({ message: 'Not authenticated' });
+  if (!req.session || !req.session.admin) {
+    return res.status(401).json({ message: 'Not authenticated' });
+  }
   next();
 }
 
@@ -83,35 +121,73 @@ function requireLogin(req, res, next) {
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 app.get('/', (req, res) => {
-  if (!req.session.admin) return res.redirect('/login.html');
+  if (!req.session || !req.session.admin) {
+    return res.redirect('/login.html');
+  }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/login.html', (req, res) => {
-  if (req.session.admin) return res.redirect('/');
+  if (req.session && req.session.admin) {
+    return res.redirect('/');
+  }
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
 /* =========================
    AUTH ROUTES
 ========================= */
+app.get('/check-auth', (req, res) => {
+  if (req.session && req.session.admin) {
+    return res.json({ logged: true, admin: req.session.admin });
+  }
+  res.json({ logged: false });
+});
+
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  const pool = await getPool();
 
-  const result = await pool.request()
-    .input('username', sql.VarChar, username)
-    .query('SELECT * FROM admins WHERE username=@username');
+  try {
+    const pool = await getPool();
 
-  if (result.recordset.length === 0) return res.status(401).json({ message: 'Login incorrect' });
+    const result = await pool.request()
+      .input('username', sql.VarChar, username)
+      .query('SELECT * FROM admins WHERE username = @username');
 
-  const admin = result.recordset[0];
-  const ok = await bcrypt.compare(password, admin.passwordiggor??admin.password_hash);
+    if (result.recordset.length === 0) {
+      return res.status(401).json({ message: 'Login incorrect' });
+    }
 
-  if (!ok) return res.status(401).json({ message: 'Login incorrect' });
+    const admin = result.recordset[0];
+    const ok = await bcrypt.compare(password, admin.password_hash);
 
-  req.session.admin = { id: admin.id, username: admin.username };
-  res.json({ message: '✅ Login success' });
+    if (!ok) {
+      return res.status(401).json({ message: 'Login incorrect' });
+    }
+
+    req.session.admin = {
+      id: admin.id,
+      username: admin.username
+    };
+
+    req.session.save(err => {
+      if (err) {
+        console.error('❌ Session save error:', err);
+        return res.status(500).json({ message: 'Session error' });
+      }
+
+      return res.json({ message: '✅ Login success' });
+    });
+  } catch (err) {
+    console.error('❌ Login error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.json({ message: '✅ Logged out' });
+  });
 });
 
 /* =========================
@@ -123,6 +199,10 @@ async function createAuditLog({
   action_type,
   old_quantity = null,
   new_quantity = null,
+  old_price = null,
+  new_price = null,
+  old_category = null,
+  new_category = null,
   note = null
 }) {
   const pool = await getPool();
@@ -133,12 +213,16 @@ async function createAuditLog({
     .input('action_type', sql.VarChar, action_type)
     .input('old_quantity', sql.Int, old_quantity)
     .input('new_quantity', sql.Int, new_quantity)
+    .input('old_price', sql.Decimal(10, 2), old_price)
+    .input('new_price', sql.Decimal(10, 2), new_price)
+    .input('old_category', sql.VarChar, old_category)
+    .input('new_category', sql.VarChar, new_category)
     .input('note', sql.VarChar, note)
     .query(`
       INSERT INTO audit_logs
-      (product_id, product_name, action_type, old_quantity, new_quantity, note)
+      (product_id, product_name, action_type, old_quantity, new_quantity, old_price, new_price, old_category, new_category, note)
       VALUES
-      (@product_id, @product_name, @action_type, @old_quantity, @new_quantity, @note)
+      (@product_id, @product_name, @action_type, @old_quantity, @new_quantity, @old_price, @new_price, @old_category, @new_category, @note)
     `);
 }
 
@@ -155,6 +239,7 @@ app.get('/products', requireLogin, async (req, res) => {
 
     res.json(result.recordset);
   } catch (err) {
+    console.error('❌ GET /products error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -162,9 +247,11 @@ app.get('/products', requireLogin, async (req, res) => {
 // GET ONE PRODUCT
 app.get('/products/:id', requireLogin, async (req, res) => {
   try {
+    const id = Number(req.params.id);
+
     const pool = await getPool();
     const result = await pool.request()
-      .input('id', sql.Int, Number(req.params.id))
+      .input('id', sql.Int, id)
       .query('SELECT * FROM products WHERE id = @id');
 
     if (result.recordset.length === 0) {
@@ -173,6 +260,7 @@ app.get('/products/:id', requireLogin, async (req, res) => {
 
     res.json(result.recordset[0]);
   } catch (err) {
+    console.error('❌ GET /products/:id error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -207,6 +295,10 @@ app.post('/products', requireLogin, async (req, res) => {
       action_type: 'CREATE',
       old_quantity: null,
       new_quantity: product.quantity,
+      old_price: null,
+      new_price: product.price,
+      old_category: null,
+      new_category: product.category,
       note: 'Ajout du produit'
     });
 
@@ -215,6 +307,7 @@ app.post('/products', requireLogin, async (req, res) => {
       product
     });
   } catch (err) {
+    console.error('❌ POST /products error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -270,6 +363,10 @@ app.put('/products/:id', requireLogin, async (req, res) => {
       action_type: 'UPDATE',
       old_quantity: oldProduct.quantity,
       new_quantity: updatedProduct.quantity,
+      old_price: oldProduct.price,
+      new_price: updatedProduct.price,
+      old_category: oldProduct.category,
+      new_category: updatedProduct.category,
       note: 'Modification du produit'
     });
 
@@ -278,6 +375,7 @@ app.put('/products/:id', requireLogin, async (req, res) => {
       product: updatedProduct
     });
   } catch (err) {
+    console.error('❌ PUT /products/:id error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -309,11 +407,16 @@ app.delete('/products/:id', requireLogin, async (req, res) => {
       action_type: 'DELETE',
       old_quantity: product.quantity,
       new_quantity: null,
+      old_price: product.price,
+      new_price: null,
+      old_category: product.category,
+      new_category: null,
       note: 'Suppression du produit'
     });
 
     res.json({ message: '✅ Product tmsaḥ' });
   } catch (err) {
+    console.error('❌ DELETE /products/:id error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -361,6 +464,10 @@ app.put('/products/:id/add-stock', requireLogin, async (req, res) => {
       action_type: 'ADD_STOCK',
       old_quantity: oldProduct.quantity,
       new_quantity: updatedProduct.quantity,
+      old_price: null,
+      new_price: null,
+      old_category: null,
+      new_category: null,
       note: 'Ajout de stock'
     });
 
@@ -369,6 +476,7 @@ app.put('/products/:id/add-stock', requireLogin, async (req, res) => {
       product: updatedProduct
     });
   } catch (err) {
+    console.error('❌ PUT /products/:id/add-stock error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -416,6 +524,10 @@ app.put('/products/:id/remove-stock', requireLogin, async (req, res) => {
       action_type: 'REMOVE_STOCK',
       old_quantity: oldProduct.quantity,
       new_quantity: updatedProduct.quantity,
+      old_price: null,
+      new_price: null,
+      old_category: null,
+      new_category: null,
       note: 'Retrait de stock'
     });
 
@@ -424,6 +536,7 @@ app.put('/products/:id/remove-stock', requireLogin, async (req, res) => {
       product: updatedProduct
     });
   } catch (err) {
+    console.error('❌ PUT /products/:id/remove-stock error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -437,6 +550,7 @@ app.get('/low-stock', requireLogin, async (req, res) => {
 
     res.json(result.recordset);
   } catch (err) {
+    console.error('❌ GET /low-stock error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -454,6 +568,7 @@ app.get('/audit-logs', requireLogin, async (req, res) => {
 
     res.json(result.recordset);
   } catch (err) {
+    console.error('❌ GET /audit-logs error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -461,9 +576,11 @@ app.get('/audit-logs', requireLogin, async (req, res) => {
 // GET AUDIT LOGS BY PRODUCT ID
 app.get('/audit-logs/:productId', requireLogin, async (req, res) => {
   try {
+    const productId = Number(req.params.productId);
+
     const pool = await getPool();
     const result = await pool.request()
-      .input('product_id', sql.Int, Number(req.params.productId))
+      .input('product_id', sql.Int, productId)
       .query(`
         SELECT * FROM audit_logs
         WHERE product_id = @product_id
@@ -472,6 +589,7 @@ app.get('/audit-logs/:productId', requireLogin, async (req, res) => {
 
     res.json(result.recordset);
   } catch (err) {
+    console.error('❌ GET /audit-logs/:productId error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -484,6 +602,7 @@ app.delete('/audit-logs', requireLogin, async (req, res) => {
 
     res.json({ message: '✅ Historique supprimé' });
   } catch (err) {
+    console.error('❌ DELETE /audit-logs error:', err);
     res.status(500).json({ error: err.message });
   }
 });
